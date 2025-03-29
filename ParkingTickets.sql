@@ -59,18 +59,18 @@ VALUES
 
 INSERT INTO appeals (appealDate, ticketId, appealInfo)
 VALUES
-('20241001', 1, 'Appeal regarding ticket ID 1, challenging the fine amount.'),
-('20241002', 2, 'Appeal for ticket ID 2, requesting a reduction in penalty.'),
-('20241003', 3, 'Appeal related to ticket ID 3, questioning the details of the report.'),
-('20241004', 4, 'Appeal concerning ticket ID 4, disputing the charges.'),
-('20241005', 5, 'Appeal for ticket ID 5, arguing the validity of the ticket.'),
-('20241006', 16, 'Appeal for ticket ID 16, requesting the cancellation of the fine.'),
-('20241007', 14, 'Appeal regarding ticket ID 14, asking for a review of the decision.'),
-('20241008', 8, 'Appeal related to ticket ID 8, disputing the amount of the fine.'),
-('20241009', 10, 'Appeal concerning ticket ID 10, questioning the validity of the citation.'),
-('20241010', 11, 'Appeal for ticket ID 11, requesting a reconsideration of the fine.'),
-('20241011', 7, 'Appeal regarding ticket ID 7, challenging the legality of the ticket issued.'),
-('20241012', 12, 'Appeal related to ticket ID 12, requesting a decrease in the fine amount.');
+    ('20250224', 1, 'Appeal regarding ticket ID 1, challenging the fine amount.'),
+    ('20241002', 2, 'Appeal for ticket ID 2, requesting a reduction in penalty.'),
+    ('20250202', 3, 'Appeal related to ticket ID 3, questioning the details of the report.'),
+    ('20240821', 4, 'Appeal concerning ticket ID 4, disputing the charges.'),
+    ('20240710', 5, 'Appeal for ticket ID 5, arguing the validity of the ticket.'),
+    ('20250211', 16, 'Appeal for ticket ID 16, requesting the cancellation of the fine.'),
+    ('20241107', 14, 'Appeal regarding ticket ID 14, asking for a review of the decision.'),
+    ('20241205', 8, 'Appeal related to ticket ID 8, disputing the amount of the fine.'),
+    ('20241009', 10, 'Appeal concerning ticket ID 10, questioning the validity of the citation.'),
+    ('20250127', 11, 'Appeal for ticket ID 11, requesting a reconsideration of the fine.'),
+    ('20240503', 7, 'Appeal regarding ticket ID 7, challenging the legality of the ticket issued.'),
+    ('20240612', 12, 'Appeal related to ticket ID 12, requesting a decrease in the fine amount.');
 
 
 
@@ -126,4 +126,183 @@ FROM inspectors i
 INNER JOIN tickets t ON t.inspectorId = i.id
 WHERE CAST(t.ticketDate AS VARCHAR) LIKE '2024%'  -- or use `t.ticketDate BETWEEN '2024-01-01' AND '2024-12-31'`
 GROUP BY i.firstName, i.lastName;
+
+
+EXECUTE inspectorInfo
+
+
+SELECT * FROM inspectors
+
+
+
+-- Q6 
+
+
+CREATE PROCEDURE sp_avg_appeal_day
+AS
+BEGIN
+    SELECT AVG(DATEDIFF(DAY, t.ticketDate, a.appealDate))
+    FROM dbo.appeals a
+    JOIN dbo.tickets t
+    ON a.ticketId = t.id
+END;
+
+
+EXECUTE sp_avg_appeal_day
+
+
+-- q7
+
+
+-- CREATE PROCEDURE inspector_stats
+-- AS
+-- BEGIN
+--     -- Query 1: Inspector with the most tickets
+--     SELECT TOP 1 
+--         i.firstName,
+--         i.lastName AS inspector_full_name, 
+--         COUNT(t.id) AS totalTickets
+--     FROM inspectors i
+--     INNER JOIN tickets t ON i.id = t.inspectorId
+--     GROUP BY i.firstName, i.lastName, i.id
+--     ORDER BY totalTickets DESC;
+
+--     -- Query 2: Inspector who collected the biggest sum
+--     SELECT TOP 1 
+--         i.firstName,
+--         i.lastName AS inspector_full_name, 
+--         SUM(t.sum) AS totalSum
+--     FROM inspectors i
+--     INNER JOIN tickets t ON i.id = t.inspectorId
+--     GROUP BY i.firstName, i.lastName, i.id
+--     ORDER BY totalSum DESC;
+-- END;
+
+
+
+ALTER PROCEDURE sp_inspector_bonus
+AS
+BEGIN
+    SELECT ins.firstName + ' ' + ins.lastName AS [full name]
+    FROM dbo.inspectors ins
+    WHERE
+        ins.firstName + ' ' + ins.lastName = (
+            SELECT TOP(1)
+                i.firstName + ' ' + i.lastName
+            FROM dbo.tickets t
+            JOIN dbo.inspectors i
+            ON i.id = t.inspectorId
+            GROUP BY i.firstName + ' ' + i.lastName
+            ORDER BY SUM(t.sum) DESC
+        ) OR ins.firstName + ' ' + ins.lastName = (
+            SELECT TOP(1)
+                i.firstName + ' ' + i.lastName
+            FROM dbo.tickets t
+            JOIN dbo.inspectors i
+            ON i.id = t.inspectorId
+            GROUP BY i.firstName + ' ' + i.lastName
+            ORDER BY COUNT(t.id) DESC
+        )
+END;
+
+
+-- q8
+
+CREATE PROCEDURE sp_max_appeals_inspector
+AS
+BEGIN
+    SELECT TOP(1)
+        i.firstName,
+        i.lastName
+    FROM dbo.appeals a
+    JOIN dbo.tickets t
+    ON a.ticketId = t.id
+    JOIN dbo.inspectors i
+    ON t.inspectorId = i.id
+    GROUP BY i.firstName, i.lastName
+    ORDER BY COUNT(a.id) DESC
+END;
+
+
+
+
+-- q9
+
+-- CREATE PROCEDURE AddTicket
+--     @inspectorId INT,       -- Input parameter for the inspectorId
+--     @sum MONEY               -- Input parameter for the sum (amount of the ticket)
+-- AS
+-- BEGIN
+--     -- Insert the new ticket into the tickets table
+--     INSERT INTO tickets (ticketDate, ticketTime, inspectorId, sum)
+--     VALUES (GETDATE(), GETDATE(), @inspectorId, @sum);  -- Use GETDATE() for the current date and time
+-- END;
+
+-- EXEC AddTicket @inspectorId = 1, @sum = 2000.00;
+
+
+CREATE PROCEDURE sp_insert_ticket
+    @inspectorId INT,
+    @sum MONEY
+AS
+BEGIN
+    BEGIN TRANSACTION;
+
+    BEGIN TRY
+        IF @inspectorId NOT IN (SELECT i.id FROM dbo.inspectors i) BEGIN
+            RAISERROR('Inspector ID must exist in inspectors table.', 16, 1);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+
+        IF @sum < 150 BEGIN
+            RAISERROR('Minimum sum for ticket is 150.00', 16, 1);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+
+        INSERT INTO dbo.tickets (inspectorId, sum)
+        VALUES (@inspectorId, @sum);
+
+        COMMIT TRANSACTION;
+        PRINT 'Ticket inserted successfully.';
+    END TRY
+    BEGIN CATCH
+        PRINT 'An error occurred while inserting the ticket.';
+        PRINT ERROR_MESSAGE();
+        ROLLBACK TRANSACTION;
+    END CATCH
+END;
+
+
+
+
+
+
+-- q10
+CREATE FUNCTION GetAppealsWithinDateRange
+(
+    @date1 DATE,  -- Start date
+    @date2 DATE   -- End date
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT 
+        a.id AS appealId,
+        i.firstName + ' ' + i.lastName AS inspector_full_name,  -- Inspector's full name
+        t.sum AS ticket_sum,      -- Sum of the ticket
+        a.appealInfo AS description -- Appeal description
+    FROM appeals a
+    INNER JOIN tickets t ON a.ticketId = t.id  -- Join to tickets table to get ticket information
+    INNER JOIN inspectors i ON t.inspectorId = i.id  -- Join to inspectors table to get inspector info
+    WHERE a.appealDate BETWEEN @date1 AND @date2  -- Filter by date range
+    ORDER BY a.appealDate  -- Order by appeal date
+);
+
+
+
+
+
 
